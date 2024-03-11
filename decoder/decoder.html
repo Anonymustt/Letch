@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Image Decoder</title>
+</head>
+<body>
+  <input type="file" id="imageInput">
+  <button id="decodeButton">Decode Image</button>
+  <div id="output"></div>
+
+  <script>
+    (function () {
+      var util = {
+        "isPrime": function (n) {
+          if (isNaN(n) || !isFinite(n) || n % 1 || n < 2) return false;
+          if (n % 2 === 0) return (n === 2);
+          if (n % 3 === 0) return (n === 3);
+          var m = Math.sqrt(n);
+          for (var i = 5; i <= m; i += 6) {
+            if (n % i === 0) return false;
+            if (n % (i + 2) === 0) return false;
+          }
+          return true;
+        },
+        "findNextPrime": function (n) {
+          for (var i = n; true; i += 1)
+            if (util.isPrime(i)) return i;
+        },
+        "sum": function (func, end, options) {
+          var sum = 0;
+          options = options || {};
+          for (var i = options.start || 0; i < end; i += (options.inc || 1))
+            sum += func(i) || 0;
+
+          return (sum === 0 && options.defValue ? options.defValue : sum);
+        },
+        "product": function (func, end, options) {
+          var prod = 1;
+          options = options || {};
+          for (var i = options.start || 0; i < end; i += (options.inc || 1))
+            prod *= func(i) || 1;
+
+          return (prod === 1 && options.defValue ? options.defValue : prod);
+        },
+        "createArrayFromArgs": function (args, index, threshold) {
+          var ret = new Array(threshold - 1);
+          for (var i = 0; i < threshold; i += 1)
+            ret[i] = args(i >= index ? i + 1 : i);
+
+          return ret;
+        },
+        "loadImg": function (url) {
+          var image = new Image();
+          image.src = url;
+          return image;
+        }
+      };
+
+      var Cover = function Cover() {};
+
+      Cover.prototype.config = {
+        "t": 3,
+        "threshold": 1,
+        "codeUnitSize": 16,
+        "args": function (i) { return i + 1; },
+        "messageDelimiter": function (modMessage, threshold) {
+          var delimiter = new Array(threshold * 3);
+          for (var i = 0; i < delimiter.length; i += 1)
+            delimiter[i] = 255;
+
+          return delimiter;
+        },
+        "messageCompleted": function (data, i, threshold) {
+          var done = true;
+          for (var j = 0; j < 16 && done; j += 1) {
+            done = done && (data[i + j * 4] === 255);
+          }
+          return done;
+        }
+      };
+
+      Cover.prototype.decode = function (image, options) {
+        // Handle image url
+        if (image.length) {
+          image = util.loadImg(image);
+        } else if (image.src) {
+          image = util.loadImg(image.src);
+        } else if (!(image instanceof HTMLImageElement)) {
+          throw new Error('IllegalInput: The input image is neither an URL string nor an image.');
+        }
+
+        options = options || {};
+        var config = this.config;
+
+        var t = options.t || config.t,
+          threshold = options.threshold || config.threshold,
+          codeUnitSize = options.codeUnitSize || config.codeUnitSize,
+          prime = util.findNextPrime(Math.pow(2, t)),
+          args = options.args || config.args,
+          messageCompleted = options.messageCompleted || config.messageCompleted;
+
+        if (!t || t < 1 || t > 7) throw new Error('IllegalOptions: Parameter t = " + t + " is not valid: 0 < t < 8');
+
+        var shadowCanvas = document.createElement('canvas'),
+          shadowCtx = shadowCanvas.getContext('2d');
+
+        shadowCanvas.style.display = 'none';
+        shadowCanvas.width = options.width || image.width;
+        shadowCanvas.height = options.width || image.height;
+        if (options.height && options.width) {
+          shadowCtx.drawImage(image, 0, 0, options.width, options.height);
+        } else {
+          shadowCtx.drawImage(image, 0, 0);
+        }
+
+        var imageData = shadowCtx.getImageData(0, 0, shadowCanvas.width, shadowCanvas.height),
+          data = imageData.data,
+          modMessage = [],
+          q;
+
+        var i, k, done;
+        if (threshold === 1) {
+          for (i = 3, done = false; !done && i < data.length && !done; i += 4) {
+            done = messageCompleted(data, i, threshold);
+            if (!done) modMessage.push(data[i] - (255 - prime + 1));
+          }
+        }
+
+        var message = "", charCode = 0, bitCount = 0, mask = Math.pow(2, codeUnitSize) - 1;
+        for (i = 0; i < modMessage.length; i += 1) {
+          charCode += modMessage[i] << bitCount;
+          bitCount += t;
+          if (bitCount >= codeUnitSize) {
+            message += String.fromCharCode(charCode & mask);
+            bitCount %= codeUnitSize;
+            charCode = modMessage[i] >> (t - bitCount);
+          }
+        }
+        if (charCode !== 0) message += String.fromCharCode(charCode & mask);
+
+        return message;
+      };
+
+      window.Cover = Cover;
+    })();
+
+    // Function to decode the selected image
+    function decodeImage() {
+      var fileInput = document.getElementById('imageInput');
+
+      // Check if a file is selected
+      if (fileInput.files.length === 0) {
+        document.getElementById('output').textContent = 'Please select an image file.';
+        return;
+      }
+
+      var file = fileInput.files[0];
+      var reader = new FileReader();
+
+      // Read the selected image file
+      reader.onload = function (event) {
+        var imageUrl = event.target.result;
+
+        var image = new Image();
+        image.onload = function () {
+          var cover = new Cover(); // Accessing the Cover object
+          var decodedMessage = cover.decode(imageUrl);
+
+          // Display the decoded message
+          document.getElementById('output').textContent = decodedMessage;
+        };
+        image.src = imageUrl;
+      };
+
+      // Read the file as data URL
+      reader.readAsDataURL(file);
+    }
+
+    // Event listener for the decode button
+    document.getElementById('decodeButton').addEventListener('click', decodeImage);
+  </script>
+</body>
+</html>
