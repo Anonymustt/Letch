@@ -42,7 +42,7 @@ import { ChatState } from "../Context/ChatProvider";
 
 const ScrollableChat = ({ messages }) => {
 
-  const ENDPOINT = "http://localhost:5000";
+  const ENDPOINT = "https://letch.onrender.com";
   
   const [socket, setSocket] = useState(null)   
   const [loggedUser, setLoggedUser] = useState();
